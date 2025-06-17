@@ -15,7 +15,7 @@ app = FastAPI(
 )
 
 class BusinessRequest(BaseModel):
-    business_name: str
+    business_names: List[str]
 
 class ReviewResponse(BaseModel):
     author: str
@@ -23,28 +23,47 @@ class ReviewResponse(BaseModel):
     text: str
     date: str
 
+class BusinessReviews(BaseModel):
+    business_name: str
+    reviews: List[ReviewResponse]
+
 class APIResponse(BaseModel):
     status: str
-    data: List[ReviewResponse]
+    data: List[BusinessReviews]
     error: Optional[str] = None
 
 @app.post("/reviews", response_model=APIResponse)
 async def get_reviews(request: BusinessRequest):
+    scraper = None
     try:
-        logger.info(f"Received request for business: {request.business_name}")
+        logger.info(f"Received request for businesses: {request.business_names}")
         scraper = GoogleReviewsScraper()
-        reviews = await scraper.scrape_reviews(request.business_name)
+        all_business_reviews = []
         
-        if not reviews:
+        for business_name in request.business_names:
+            try:
+                reviews = await scraper.scrape_reviews(business_name)
+                all_business_reviews.append({
+                    "business_name": business_name,
+                    "reviews": reviews
+                })
+            except Exception as e:
+                logger.error(f"Error scraping reviews for {business_name}: {str(e)}")
+                all_business_reviews.append({
+                    "business_name": business_name,
+                    "reviews": []
+                })
+        
+        if not any(reviews["reviews"] for reviews in all_business_reviews):
             return APIResponse(
                 status="success",
-                data=[],
-                error="No reviews found for this business"
+                data=all_business_reviews,
+                error="No reviews found for any of the businesses"
             )
             
         return APIResponse(
             status="success",
-            data=reviews
+            data=all_business_reviews
         )
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
@@ -52,6 +71,9 @@ async def get_reviews(request: BusinessRequest):
             status_code=500,
             detail=str(e)
         )
+    finally:
+        if scraper:
+            scraper.cleanup()
 
 if __name__ == "__main__":
     import uvicorn

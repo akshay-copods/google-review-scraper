@@ -43,12 +43,13 @@ class Review:
 class GoogleReviewsScraper:
     def __init__(self, max_reviews=500):
         self.driver = None
-        self.setup_driver()
-        # Set the maximum number of reviews to scrape
         self.max_reviews = max_reviews
 
     def setup_driver(self):
         """Setup Chrome WebDriver with necessary options"""
+        if self.driver is not None:
+            return
+
         try:
             chrome_options = Options()
             # Uncomment the next line to run in headless mode for faster execution
@@ -74,8 +75,7 @@ class GoogleReviewsScraper:
         """
         Scrapes reviews for a given business, handling scrolling, 'More' buttons, and duplicates.
         """
-        if not self.driver:
-            raise Exception("WebDriver not initialized")
+        self.setup_driver()
 
         try:
             search_url = f"https://www.google.com/maps/search/{business_name.replace(' ', '+')}"
@@ -189,7 +189,10 @@ class GoogleReviewsScraper:
         except Exception as e:
             logger.error(f"An unexpected error occurred during scraping: {str(e)}")
             raise
-        finally:
-            if self.driver:
-                self.driver.quit()
-                logger.info("WebDriver has been closed.")
+
+    def cleanup(self):
+        """Clean up the WebDriver instance"""
+        if self.driver:
+            self.driver.quit()
+            self.driver = None
+            logger.info("WebDriver has been closed.")
