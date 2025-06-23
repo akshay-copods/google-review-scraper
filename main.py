@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from scraper import GoogleReviewsScraper
+from linkedin_scraper import LinkedInScraper
 import logging
 from typing import List, Dict, Optional
 
@@ -9,13 +10,17 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Google Reviews Scraper API",
-    description="API to scrape Google Reviews for businesses",
+    title="Business Data Scraper API",
+    description="API to scrape Google Reviews and LinkedIn profiles for businesses",
     version="1.0.0"
 )
 
 class BusinessRequest(BaseModel):
     business_names: List[str]
+
+class LinkedInRequest(BusinessRequest):
+    email: str
+    password: str
 
 class ReviewResponse(BaseModel):
     author: str
@@ -30,6 +35,20 @@ class BusinessReviews(BaseModel):
 class APIResponse(BaseModel):
     status: str
     data: List[BusinessReviews]
+    error: Optional[str] = None
+
+class LinkedInProfileResponse(BaseModel):
+    name: str
+    subtitle: str
+    profile_url: str
+
+class CompanyProfiles(BaseModel):
+    company_name: str
+    profiles: List[LinkedInProfileResponse]
+
+class LinkedInAPIResponse(BaseModel):
+    status: str
+    data: List[CompanyProfiles]
     error: Optional[str] = None
 
 @app.post("/reviews", response_model=APIResponse)
@@ -67,6 +86,49 @@ async def get_reviews(request: BusinessRequest):
         )
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+    finally:
+        if scraper:
+            scraper.cleanup()
+
+@app.post("/linkedin-profiles", response_model=LinkedInAPIResponse)
+async def get_linkedin_profiles(request: LinkedInRequest):
+    scraper = None
+    try:
+        logger.info(f"Received LinkedIn request for businesses: {request.business_names}")
+        scraper = LinkedInScraper(email=request.email, password=request.password)
+        all_company_profiles = []
+        
+        for business_name in request.business_names:
+            try:
+                profiles = await scraper.scrape_company_employees(business_name)
+                all_company_profiles.append({
+                    "company_name": business_name,
+                    "profiles": profiles
+                })
+            except Exception as e:
+                logger.error(f"Error scraping LinkedIn profiles for {business_name}: {str(e)}")
+                all_company_profiles.append({
+                    "company_name": business_name,
+                    "profiles": []
+                })
+        
+        if not any(profiles["profiles"] for profiles in all_company_profiles):
+            return LinkedInAPIResponse(
+                status="success",
+                data=all_company_profiles,
+                error="No LinkedIn profiles found for any of the businesses"
+            )
+            
+        return LinkedInAPIResponse(
+            status="success",
+            data=all_company_profiles
+        )
+    except Exception as e:
+        logger.error(f"Error processing LinkedIn request: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=str(e)
