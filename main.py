@@ -38,9 +38,17 @@ class APIResponse(BaseModel):
     error: Optional[str] = None
 
 class LinkedInProfileResponse(BaseModel):
+    """
+    Pydantic model to validate the structure of a scraped LinkedIn profile.
+    This model reflects all the fields scraped by the latest version of the script.
+    """
     name: str
-    subtitle: str
+    subtitle: Optional[str] = None
     profile_url: str
+    location: Optional[str] = None
+    about: Optional[str] = None
+    latest_job_title: Optional[str] = None
+    latest_job_company: Optional[str] = None
 
 class CompanyProfiles(BaseModel):
     company_name: str
