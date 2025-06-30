@@ -302,52 +302,67 @@ class LinkedInScraper:
             logger.warning(f"Could not find any profile cards for '{company_username}'. The page may be private or have no listed employees.")
             return []
 
+        # This list will hold the dict for each unique profile found
         all_employees_on_page = []
-        while True:
+        retry_count = 0
+        max_retries = 5
+        
+        while retry_count < max_retries:
+            # Store the number of unique profiles found so far
             count_before = len(self.scraped_profiles)
             
+            # Scroll to the bottom to load profiles
             self.scroll_like_human()
             
+            # Extract new profiles and add them to our main list
             new_profiles = self.extract_profiles()
             all_employees_on_page.extend(new_profiles)
             
+            # Try to find and click the "Show more results" button
             try:
                 show_more_button = WebDriverWait(self.driver, 7).until(
                     EC.element_to_be_clickable((By.XPATH, "//button[span[text()='Show more results']] | //button[text()='Show more results']"))
                 )
                 self.driver.execute_script("arguments[0].click();", show_more_button)
-                logger.info("Clicked 'Show more results' button.")
-                self.human_delay(4, 6) 
+                logger.info(f"Clicked 'Show more results' button. (Attempt {retry_count + 1}/{max_retries})")
+                self.human_delay(4, 6) # Wait for new profiles to load
+                retry_count += 1
             except TimeoutException:
-                logger.info("'Show more results' button not found.")
-                if len(self.scraped_profiles) == count_before:
-                    logger.info("No new profiles loaded from scrolling and no button found. Finalizing list.")
-                    break
+                logger.info("'Show more results' button not found. No more profiles to load.")
+                break
             except Exception as e:
                 logger.warning(f"An error occurred while trying to click 'Show more': {e}")
-                break
+                retry_count += 1
+                continue
 
+            # If no new unique profiles were found in this iteration, increment retry count
             if len(self.scraped_profiles) == count_before:
-                logger.info("No new profiles found in this iteration. Finalizing list.")
-                break
+                logger.info(f"No new profiles found in this iteration. (Attempt {retry_count}/{max_retries})")
+                retry_count += 1
+            else:
+                # Reset retry count if we found new profiles
+                retry_count = 0
+
+        if retry_count >= max_retries:
+            logger.info(f"Reached maximum retries ({max_retries}). Finalizing list.")
 
         logger.info(f"Initial scan complete. Found {len(all_employees_on_page)} unique profiles for '{company_username}'.")
         logger.info("Now scraping individual profile details (location, about, and latest job)...")
         
         final_employee_list = []
-        for i, employee in enumerate(all_employees_on_page):
-            logger.info(f"--- Processing profile {i + 1}/{len(all_employees_on_page)}: {employee.get('name', 'N/A')} ---")
-            profile_url = employee.get("profile_url")
-            if profile_url:
-                clean_url = profile_url.split('?')[0]
-                details = self.scrape_profile_details(clean_url)
-                employee.update(details)
-            final_employee_list.append(employee)
-            logger.info(f"  [MERGED] Updated employee data: {employee}")
-            self.human_delay(3, 6) # Longer, more human-like pause between visiting profiles
+        # for i, employee in enumerate(all_employees_on_page):
+        #     logger.info(f"--- Processing profile {i + 1}/{len(all_employees_on_page)}: {employee.get('name', 'N/A')} ---")
+        #     profile_url = employee.get("profile_url")
+        #     # if profile_url:
+        #     #     clean_url = profile_url.split('?')[0]
+        #     #     details = self.scrape_profile_details(clean_url)
+        #     #     employee.update(details)
+        #     final_employee_list.append(employee)
+        #     logger.info(f"  [MERGED] Updated employee data: {employee}")
+        #     self.human_delay(3, 6) # Longer, more human-like pause between visiting profiles
 
         logger.info(f"Scraping complete. Processed details for {len(final_employee_list)} profiles.")
-        return final_employee_list
+        return all_employees_on_page
 
     def cleanup(self):
         """Closes the WebDriver and resets the state."""
