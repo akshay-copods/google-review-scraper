@@ -122,3 +122,12 @@ my payload -
 Once the server is running, you can access the interactive API documentation at:
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc` 
+
+
+Scraped data ID's:
+sodexo - s_mclpanuh22cgyikn5f
+assetlink - s_mciyazq7c3zrq71kq
+atco-structures - s_mcj4s6rba19av2084
+compass-group - s_mclqi80e2184v225bd
+fleetwood - s_mclr0s6c1mxdwxibl0
+civeo australia - s_mclruqqa1mj5hrc2be
