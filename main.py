@@ -61,23 +61,27 @@ class LinkedInAPIResponse(BaseModel):
 
 @app.post("/reviews", response_model=APIResponse)
 async def get_reviews(request: BusinessRequest):
+    """
+    Scrape Google reviews for a list of business names or Google Maps URLs.
+    Each entry in business_names can be either a business name or a direct Google Maps URL.
+    """
     scraper = None
     try:
-        logger.info(f"Received request for businesses: {request.business_names}")
+        logger.info(f"Received request for businesses or URLs: {request.business_names}")
         scraper = GoogleReviewsScraper()
         all_business_reviews = []
         
-        for business_name in request.business_names:
+        for business_name_or_url in request.business_names:
             try:
-                reviews = await scraper.scrape_reviews(business_name)
+                reviews = await scraper.scrape_reviews(business_name_or_url)
                 all_business_reviews.append({
-                    "business_name": business_name,
+                    "business_name": business_name_or_url,
                     "reviews": reviews
                 })
             except Exception as e:
-                logger.error(f"Error scraping reviews for {business_name}: {str(e)}")
+                logger.error(f"Error scraping reviews for {business_name_or_url}: {str(e)}")
                 all_business_reviews.append({
-                    "business_name": business_name,
+                    "business_name": business_name_or_url,
                     "reviews": []
                 })
         

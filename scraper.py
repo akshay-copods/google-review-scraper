@@ -10,6 +10,10 @@ import time
 import asyncio
 from typing import List, Dict, Optional
 import logging
+import os
+import platform
+import subprocess
+import shutil
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +49,32 @@ class GoogleReviewsScraper:
         self.driver = None
         self.max_reviews = max_reviews
 
+    def _find_chromedriver_binary(self, base_path: str) -> str:
+        """Find the actual chromedriver binary in the downloaded directory"""
+        if not os.path.exists(base_path):
+            raise FileNotFoundError(f"ChromeDriver path does not exist: {base_path}")
+        
+        # Common chromedriver binary names
+        binary_names = ['chromedriver', 'chromedriver.exe']
+        
+        # Search in the base directory first
+        for binary_name in binary_names:
+            binary_path = os.path.join(base_path, binary_name)
+            if os.path.isfile(binary_path) and os.access(binary_path, os.X_OK):
+                logger.info(f"Found chromedriver binary at: {binary_path}")
+                return binary_path
+        
+        # Search in subdirectories (for ARM64 Mac issues)
+        for root, dirs, files in os.walk(base_path):
+            for binary_name in binary_names:
+                if binary_name in files:
+                    binary_path = os.path.join(root, binary_name)
+                    if os.access(binary_path, os.X_OK):
+                        logger.info(f"Found chromedriver binary at: {binary_path}")
+                        return binary_path
+        
+        raise FileNotFoundError(f"Could not find executable chromedriver binary in {base_path}")
+
     def setup_driver(self):
         """Setup Chrome WebDriver with necessary options"""
         if self.driver is not None:
@@ -64,21 +94,56 @@ class GoogleReviewsScraper:
             chrome_options.add_argument("--disable-blink-features=AutomationControlled")
             chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
 
-            service = Service(ChromeDriverManager().install())
+            # Try to get chromedriver path and fix ARM64 macOS issues
+            try:
+                # Get the base path from ChromeDriverManager
+                driver_path = ChromeDriverManager().install()
+                logger.info(f"ChromeDriverManager returned path: {driver_path}")
+                
+                # Check if the returned path is actually the chromedriver binary
+                if not os.access(driver_path, os.X_OK) or "THIRD_PARTY_NOTICES" in driver_path:
+                    logger.warning(f"Invalid chromedriver path: {driver_path}. Searching for actual binary...")
+                    # Get the directory containing the download
+                    base_dir = os.path.dirname(driver_path)
+                    driver_path = self._find_chromedriver_binary(base_dir)
+                
+                # Make sure the binary is executable
+                os.chmod(driver_path, 0o755)
+                
+            except Exception as manager_error:
+                logger.warning(f"ChromeDriverManager failed: {manager_error}")
+                
+                # Fallback: try to find chromedriver in system PATH
+                chromedriver_system = shutil.which('chromedriver')
+                if chromedriver_system:
+                    driver_path = chromedriver_system
+                    logger.info(f"Using system chromedriver at: {driver_path}")
+                else:
+                    raise Exception("Could not find chromedriver. Please install it manually or ensure Chrome is properly installed.")
+
+            service = Service(driver_path)
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
             logger.info("Chrome WebDriver setup successful")
+            
         except Exception as e:
             logger.error(f"Failed to setup Chrome WebDriver: {str(e)}")
             raise
 
-    async def scrape_reviews(self, business_name: str) -> List[Dict]:
+    def _is_google_maps_url(self, input_str: str) -> bool:
+        """Check if the input string is a Google Maps URL."""
+        return input_str.startswith("https://www.google.com/maps/")
+
+    async def scrape_reviews(self, business_name_or_url: str) -> List[Dict]:
         """
-        Scrapes reviews for a given business, handling scrolling, 'More' buttons, and duplicates.
+        Scrapes reviews for a given business name or Google Maps URL, handling scrolling, 'More' buttons, and duplicates.
         """
         self.setup_driver()
 
         try:
-            search_url = f"https://www.google.com/maps/search/{business_name.replace(' ', '+')}"
+            if self._is_google_maps_url(business_name_or_url):
+                search_url = business_name_or_url
+            else:
+                search_url = f"https://www.google.com/maps/search/{business_name_or_url.replace(' ', '+')}"
             logger.info(f"Accessing URL: {search_url}")
             self.driver.get(search_url)
 
